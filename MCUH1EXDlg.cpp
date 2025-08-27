@@ -65,20 +65,24 @@ UINT CMCUH1EXDlg::ThreadMain(LPVOID param)
 	CMCUH1EXDlg* pDlg = (CMCUH1EXDlg*)param;
 	BOOL *bCon = &pDlg->m_b_thd_flag;
 
-	int nPos = 0, nVelo = 0;
+	int nPos = 0, nVelo = 0, nSig = 0;
 	CString szPara;
 
 	while (*bCon) {
 		if (mcu1_connect_check() == OK) {
 			pDlg->m_sz_status = _T("Connect");
 
-			if (mcu1_read_current_position(nPos) == OK && mcu1_read_velocity(nVelo) == OK){		// mcuh1 현재 위치, 현재 속도 
+			if (mcu1_read_current_position(nPos) == OK && mcu1_read_velocity(nVelo) == OK && mcu1_get_m_point(30, nSig) == OK) {		// mcuh1 현재 위치, 현재 속도 
 				szPara.Format(_T("%0.3lf"), (double)nPos / 1000);								// 마이크로 단위 변경
 				pDlg->SetDlgItemText(IDC_EDIT5, szPara);
 
 				szPara.Format(_T("%d"), nVelo);
 				pDlg->SetDlgItemText(IDC_EDIT6, szPara);
 
+				for (int i = 0; i < 16; i++) {
+					if (nSig & (int)pow(2, 15 - i))	pDlg->SetDlgItemInt(IDC_BIT_VALUE_F + i, 1);
+					else pDlg->SetDlgItemInt(IDC_BIT_VALUE_F + i, 0);
+				}
 			}
 
 		}else{
@@ -198,28 +202,56 @@ int CMCUH1EXDlg::OnCreate(LPCREATESTRUCT lpCreateStruct)
 	if (CDialogEx::OnCreate(lpCreateStruct) == -1)
 		return -1;
 
+	CFont* pDefFont = new CFont;
+	pDefFont->CreateStockObject(DEFAULT_GUI_FONT);
+
+	CString str;
+
+	for (int i = 0; i < 16; i++) {
+		CStatic* pBitNum = new CStatic;
+		str.Format(_T("%X"), 15 - i);
+		pBitNum->Create(str, WS_CHILD | WS_VISIBLE | SS_CENTER | SS_CENTERIMAGE | WS_BORDER, CRect(CPoint(10 + i * 20, 200), CSize(20, 20)), this, 10000);
+		pBitNum->SetFont(pDefFont);
+
+		CStatic* pBitVal = new CStatic;
+		pBitVal->Create(str, WS_CHILD | WS_VISIBLE | SS_CENTER | SS_CENTERIMAGE | WS_BORDER, CRect(CPoint(10 + i * 20, 220), CSize(20, 20)), this, IDC_BIT_VALUE_F + i);
+		pBitVal->SetFont(pDefFont);
+	}
+	pDefFont->DeleteObject();
+	delete pDefFont;
+
 	return 0;
 }
 
 void CMCUH1EXDlg::OnBnClickedButton1()
 {
-	int nPortNum = GetDlgItemInt(IDC_EDIT1);
-	int nResult = 0;
+	if (m_b_thd_flag) {
 
-	if (nPortNum != 0) {
-		if (mcu1_initialization() == OK && mcu1_serial_connect(nPortNum) == OK) {		// mcuh1 dll 초기화, 시리얼 포트 접속 성공시
-			m_sz_status = _T("Connect");												// 상태 메세지
+		m_b_thd_flag = FALSE;
+		m_sz_status = _T("Disconnect");
 
-			m_b_thd_flag = TRUE;														// mcuh1 접속 플래그
-			m_thd_main = ::AfxBeginThread(ThreadMain, this);
-		}
-		else {																			// 접속 실패시 
-			m_sz_status = _T("Connect Fail");
-			mcu1_terminate();															//mcuh1 dll 해제
-		}
+		TerminateThread(m_thd_main->m_hThread, 0);
+
+		mcu1_terminate();																	//mcuh1 dll 해제
 	}
-	else m_sz_status = _T("Port Num Empty");
+	else {
+		int nPortNum = GetDlgItemInt(IDC_EDIT1);
+		int nResult = 0;
 
+		if (nPortNum != 0) {
+			if (mcu1_initialization() == OK && mcu1_serial_connect(nPortNum) == OK) {		// mcuh1 dll 초기화, 시리얼 포트 접속 성공시
+				m_sz_status = _T("Connect");												// 상태 메세지
+
+				m_b_thd_flag = TRUE;														// mcuh1 접속 플래그
+				m_thd_main = ::AfxBeginThread(ThreadMain, this);
+			}
+			else {																			// 접속 실패시 
+				m_sz_status = _T("Connect Fail");
+				mcu1_terminate();															//mcuh1 dll 해제
+			}
+		}
+		else m_sz_status = _T("Port Num Empty");
+	}
 	SetDlgItemText(IDC_EDIT4, m_sz_status);
 }
 
